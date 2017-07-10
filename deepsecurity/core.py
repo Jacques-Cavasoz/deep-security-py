@@ -6,6 +6,7 @@ import re
 import ssl
 import urllib
 import urllib2
+import traceback
 
 # 3rd party libraries
 import libs.xmltodict as xmltodict
@@ -231,8 +232,8 @@ class CoreApi(object):
     response = None
     try:
       response = url_opener.open(url_request)
-    except Exception, url_err:
-      self.log("Failed to make {} {} call [{}]".format(request['api'].upper(), request_type, request['call'].lstrip('/')), err=url_err)
+    except Exception:
+      self.log("Failed to make {} {} call [{}]".format(request['api'].upper(), request_type, request['call'].lstrip('/')), err=traceback.format_exc())
 
     # Convert the request from JSON
     result = {
@@ -259,18 +260,18 @@ class CoreApi(object):
                   result['data'] = result['data']['{}Response'.format(request['call'])]
             else:
               result['data'] = full_data
-        except Exception, xmltodict_err:
-          self.log("Could not convert response from call {}".format(request['call']), err=xmltodict_err)
+        except Exception:
+          self.log("Could not convert response from call {}".format(request['call']), err=traceback.format_exc())
       else:
         # JSON response
         try:
           if result['raw'] and result['status'] != 204:
             result['type'] = result['headers']['content-type']
             result['data'] = json.loads(result['raw']) if 'json' in result['type'] else None
-        except Exception, json_err:
+        except Exception:
           # report the exception as 'info' because it's not fatal and the data is 
           # still captured in result['raw']
-          self.log("Could not convert response from call {} to JSON. Threw exception:\n\t{}".format(request['call'], json_err), level='info')
+          self.log("Could not convert response from call {} to JSON. Threw exception:\n\t{}".format(request['call'], traceback.format_exc()), level='info')
           
     return result
 
@@ -330,8 +331,8 @@ class CoreApi(object):
     try:
       func = getattr(self.logger, level.lower())
       func(message)
-    except Exception, log_err:
-      self.logger.critical("Could not write to log. Threw exception:\n\t{}".format(log_err))
+    except Exception:
+      self.logger.critical("Could not write to log. Threw exception:\n\t{}".format(traceback.format_exc()))
 
 class CoreDict(dict):
   def __init__(self):
@@ -445,7 +446,7 @@ class CoreObject(object):
 
       try:
         setattr(self, new_key, val)
-      except Exception, err:
+      except Exception:
         if log_func:
           log_func("Could not set property {} to value {} for object {}".format(k, v, s))
           try:

@@ -9,8 +9,10 @@ import re
 import core
 import computers
 import environments
+import events
 import policies
 import translation
+import traceback
 
 class Manager(core.CoreApi):
   def __init__(self,
@@ -41,13 +43,20 @@ class Manager(core.CoreApi):
       self._username = unicode(username, "utf-8")
     if password:
       self._password = unicode(password, "utf-8")
-
     self.computer_groups = computers.ComputerGroups(manager=self)
     self.computers = computers.Computers(manager=self)
     self.policies = policies.Policies(manager=self)
     self.rules = policies.Rules(manager=self)
     self.ip_lists = policies.IPLists(manager=self)
     self.cloud_accounts = environments.CloudAccounts(manager=self)
+    self.system_events = events.SystemEvents(manager=self)
+    self.antimalware_events = events.AntiMalwareEvents(manager=self)
+    self.webreputation_events = events.WebReputationEvents(manager=self)
+    self.firewall_events = events.FirewallEvents(manager=self)
+    self.intrusionprevention_events = events.IntrusionPreventionEvents(manager=self)
+    self.integritymonitoring_events = events.IntegrityMonitoringEvents(manager=self)
+    self.loginspection_events = events.LogInspectionEvents(manager=self)
+    self.application_control_events = events.ApplicationControlEvents(manager=self)
 
   def __del__(self):
     """
@@ -55,7 +64,7 @@ class Manager(core.CoreApi):
     """
     try:
       self.sign_out()
-    except Exception, err: pass
+    except Exception: pass
 
   def __str__(self):
     """
@@ -72,7 +81,7 @@ class Manager(core.CoreApi):
   
   @hostname.setter
   def hostname(self, value):
-    if value == 'app.deepsecurity.trendmicro.com': # Deep Security as a Service
+    if value == self.hostname: # Deep Security as a Service
       self.port = 443
     self._hostname = value
     self._set_endpoints()
@@ -136,18 +145,14 @@ class Manager(core.CoreApi):
     self.sign_in()
 
   def _get_local_config_file(self):
-    """
-    Look for a local config file containing the credentials similar to the AWS CLI
-
-    Path checked is ( via os.path.expanduser(path) ):
-      ~/.deepsecurity/credentials
-      C:\Users\USERNAME\.deepsecurity\credentials
-
-    !!! Remember that by storing credentials on the local disk you are increasing the
+    """	
+		Look for a local config file containing the credentials similar to the AWS CLI
+		Path checked is ( via os.path.expanduser(path) ): ~/.deepsecurity/credentials
+		C:\\Users\\USERNAME\\.deepsecurity\\credentials
+		Remember that by storing credentials on the local disk you are increasing the
         risk of compromise as you've expanded the attack surface. If an attacker gains
         access to your local machine then can now get the credentials to your Deep Security
         installation and compromise the security of other systems.
-
         Use the role-based access control in Deep Security to ensure that you reduce the
         permissions assigned to the account your using to automate the system
     """
@@ -167,8 +172,8 @@ class Manager(core.CoreApi):
             if m:
               if not credentials.has_key(m.group('key')): credentials[m.group('key')] = None
               credentials[m.group('key')] = m.group('val')
-      except Exception, err:
-        self.log("Could not read and process local credentials file.", err=err)
+      except Exception:
+        self.log("Could not read and process local credentials file.", err=traceback.format_exc())
 
       # verify credentials
       for k, v in credentials.items():
@@ -177,7 +182,7 @@ class Manager(core.CoreApi):
             try:
               setattr(self, "_{}".format(k), v)
               self.log("Loaded {} from local credentials file".format(k))
-            except Exception, err:
+            except Exception:
               self.log("Unable to load {} from local credentials file".format(k))
   
   def sign_in(self):
@@ -282,15 +287,9 @@ class Manager(core.CoreApi):
     """
     Check to see if the Manager is up and responding to requests
     """
-    result = None
     rest_call = self._get_request_format(api=self.API_TYPE_REST, call='status/manager/ping')
     response = self._request(rest_call, auth_required=False)
-    if response and response['status'] == 200:
-      result = True
-    else:
-      result = False
-
-    return result
+    return True if response and response['status'] == 200 else False
 
   # *******************************************************************
   # mirrored on the computers.Computer and computers.ComputerGroup 
@@ -432,3 +431,64 @@ class Manager(core.CoreApi):
           results['total_recommedations'] += 1
 
     return results
+
+    def activate(self, ids):
+        ''' Activate hosts.
+        '''
+        if not isinstance(ids, list):
+            ids = [ids]
+        call = self._get_request_format(call='hostAgentActivate')
+        call['data'] = { 
+			'sp': 
+			{
+				'ids': ids
+			}
+		}
+		# The call does not return anything
+        self._request(call)
+
+    def deactivate(self, ids):
+        ''' Deactivate hosts.
+        '''
+        if not isinstance(ids, list):
+            ids = [ids]
+        call = self._get_request_format(call='hostAgentDeactivate')
+        call['data'] = { 
+			'sp': 
+			{
+				'ids': ids
+			}
+		}
+		# The call does not return anything
+        self._request(call)
+
+    def update(self, ids):
+        ''' Initiate the update of host(s) specified by ID(s).
+        '''
+        if not isinstance(ids, list):
+            ids = [ids]
+        call = self._get_request_format(call='hostUpdateNow')
+        call['data'] = {
+			'sp':
+			{
+				'hostIDs': ids
+			}
+		}
+        # The call does not return anything
+        self._request(call)
+
+    def rebuild_baseline(self, ids):
+        ''' Initiate the integrity scan baseline rebuild of host(s)
+            specified by ID(s).
+        '''
+        if not isinstance(ids, list):
+            ids = [ids]
+        call = self._get_request_format(call='hostRebuildBaseline')
+        call['data'] = {
+			'sp':
+			{
+				'hostIDs': ids
+			}
+		}
+        # The call does not return anything
+        self._request(call)

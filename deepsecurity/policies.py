@@ -39,6 +39,7 @@ class Policies(core.CoreDict):
               enable_intrusion_prevention=True,
               enable_integrity_monitoring=True,
               enable_log_inspection=True,
+			  enable_application_control=True,
               description=None
               ):
     """
@@ -73,7 +74,12 @@ class Policies(core.CoreDict):
     enable_log_inspection
       - if True, enable the log inspection module
       - if 'parent_profile_id' is set, the new policy will 
-        inherit this value from the parent  
+        inherit this value from the parent
+
+	enable_application_control
+	   - if True, enable the application control module
+	   if 'parent_profile_id' is set, the new policy will
+	   inherit this value from the parent
 
     description
       - the description of the new policy
@@ -82,21 +88,26 @@ class Policies(core.CoreDict):
     creating the new policy
     """
     result = None
+    state_on = 'ON'
+    state_off = 'OFF'
+    state_inherited = 'INHERITED'
 
-    # set the state for each supported module
-    anti_malware_state = 'ON' if enable_anti_malware else 'OFF'
-    firewall_state = 'ON' if enable_firewall else 'OFF'
-    intrusion_prevention_state = 'ON' if enable_intrusion_prevention else 'OFF'
-    integrity_monitoring_state = 'ON' if enable_integrity_monitoring else 'OFF'
-    log_inspection_state = 'ON' if enable_log_inspection else 'OFF'
-
-    # inherit all states if a parent policy is specified
     if parent_profile_id:
-      anti_malware_state = 'INHERITED'
-      firewall_state = 'INHERITED'
-      intrusion_prevention_state = 'INHERITED'
-      integrity_monitoring_state = 'INHERITED'
-      log_inspection_state = 'INHERITED'
+      # inherit all states if a parent policy is specified
+      anti_malware_state = state_inherited
+      firewall_state = state_inherited
+      intrusion_prevention_state = state_inherited
+      integrity_monitoring_state = state_inherited
+      log_inspection_state = state_inherited
+      application_control_state = state_inherited
+    else:
+      # set the state for each supported modul 
+      anti_malware_state = state_on if enable_anti_malware else state_off
+      firewall_state = state_on if enable_firewall else state_off
+      intrusion_prevention_state = state_on if enable_intrusion_prevention else state_off
+      integrity_monitoring_state = state_on if enable_integrity_monitoring else state_off
+      log_inspection_state = state_on if enable_log_inspection else state_off
+      application_control_state = state_on if enable_application_control else state_off
 
     call = self.manager._get_request_format(call='securityProfileSave')
     call['data'] = { 'sp': {

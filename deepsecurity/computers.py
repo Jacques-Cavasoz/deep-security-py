@@ -5,6 +5,7 @@ import datetime
 
 # project libraries
 import core
+import filters
 
 class Computers(core.CoreDict):
   def __init__(self, manager=None):
@@ -36,84 +37,61 @@ class Computers(core.CoreDict):
     """
     # make sure we have a valid detail level
     detail_level = detail_level.upper()
-    if not detail_level in ['HIGH', 'MEDIUM', 'LOW']: detail_level = 'HIGH'
+    if not detail_level in filters.EnumHostDetailLevel: detail_level = 'HIGH'
 
     call = None
     if external_id and external_group_id:
       call = self.manager._get_request_format(call='hostDetailRetrieveByExternal')
       if external_id:
-        call['data'] = {
-          'externalFilter': {
-            'hostExternalID': external_id,
-            'hostGroupExternalID': None,
-          },
-          'hostDetailLevel': detail_level
-        }
+        filter = filters.create_external_filter(
+			hostExternalID=external_id, 
+			operator='SPECIFIC_EXT_HOST'
+		)
       elif external_group_id:
-        call['data'] = {
-          'externalFilter': {
-            'hostExternalID': None,
-            'hostGroupExternalID': external_group_id,
-          },
+        filter = filters.create_external_filter(
+			hostGroupExternalID=external_group_id, 
+			operator='HOSTS_IN_EXT_GROUP'
+		)
+      call['data'] = {
+          'externalFilter': filter,
           'hostDetailLevel': detail_level
-        }
+      }
     elif computer_name:
       if computer_name.endswith('*'):
         call = self.manager._get_request_format(call='hostDetailRetrieveByNameStartsWith')
         call['data'] = {
-          'hostname': computer_name,
+          'startsWithHostname': computer_name.rstrip('*'),
           'hostDetailLevel': detail_level
-          }
+          }       
       else:
         call = self.manager._get_request_format(call='hostDetailRetrieveByName')
         call['data'] = {
-          'startsWithHostname': computer_name.rstrip('*'),
+          'hostname': computer_name,
           'hostDetailLevel': detail_level
           }
     else:
-      # get with no arguments = hostRetrieve() with ALL_HOSTS
       call = self.manager._get_request_format(call='hostDetailRetrieve')
       if computer_id:
-        call['data'] = {
-            'hostFilter': {
-              'hostGroupID': None,
-              'hostID': computer_id,
-              'securityProfileID': None,
-              'type': 'ALL_HOSTS',
-            },
-            'hostDetailLevel': detail_level
-          }
+        filter = filters.create_host_filter(
+			hostID=computer_id, 
+			operator='SPECIFIC_HOST'
+		)
       elif computer_group_id:
-        call['data'] = {
-            'hostFilter': {
-              'hostGroupID': computer_group_id,
-              'hostID': None,
-              'securityProfileID': None,
-              'type': 'ALL_HOSTS',
-            },
-            'hostDetailLevel': detail_level
-          }
+        filter = filters.create_host_filter(
+			hostGroupID=computer_group_id, 
+			operator='HOSTS_IN_GROUP'
+		)
       elif policy_id:
-        call['data'] = {
-            'hostFilter': {
-              'hostGroupID': None,
-              'hostID': None,
-              'securityProfileID': policy_id,
-              'type': 'ALL_HOSTS',
-            },
-            'hostDetailLevel': detail_level
-          }
+        filter = filters.create_host_filter(
+			securityProfileID=policyId, 
+			operator='HOSTS_USING_SECURITY_PROFILE'
+		)
       else:
-        call['data'] = {
-            'hostFilter': {
-              'hostGroupID': None,
-              'hostID': None,
-              'securityProfileID': None,
-              'type': 'ALL_HOSTS',
-            },
+        filter = filters.create_host_filter()
+      call['data'] = {
+            'hostFilter': filter,
             'hostDetailLevel': detail_level
-          }
-
+      }
     response = self.manager._request(call)
     
     if response and response['status'] == 200:
@@ -143,6 +121,44 @@ class Computers(core.CoreDict):
             self.log("Could not add Computer {} to Policy".format(computer_obj.id), err=securityProfileid_err)
 
     return len(self)
+
+    def create(self, name, external=False, externalID=None, hostGroupID=None, 
+			   hostType='STANDARD', platform=None, securityProfileID=None):
+        call = self.manager._get_request_format(call='hostCreate')
+        call['data'] = { 
+			'sp': 
+			{
+				'displayName': name,
+			    'external': external,
+		 	    'externalID': externalID,
+			    'hostGroupID': hostGroupID,
+			    'hostType': hostType,
+			    'securityProfileID': securityProfileID
+			}
+		}
+		# The caller should handle any exceptions thrown
+        response = self.manager._request(call)
+        if response and response['status'] == 200:
+            return response['data']
+        return None
+
+    def delete(self, ids):
+        ''' Delete hosts from the Deep Security Manager. 
+			
+			ids - can be a single id or a list of ids to delete
+        '''
+		# If the caller passes a single ID, create a single-element list
+        if not isinstance(ids, list):
+            ids = [ids]
+        call = self.manager._get_request_format(call='hostDelete')
+        call['data'] = { 
+			'sp': 
+			{
+				'ids': ids
+			}
+		}
+		# The call does not return anything
+        self.manager._request(call)
 
 class ComputerGroups(core.CoreDict):
   def __init__(self, manager=None):
@@ -238,6 +254,27 @@ class Computer(core.CoreObject):
     self.recommended_rules = self.manager.get_rule_recommendations_for_computer(self.id)
     return self.recommended_rules['total_recommedations']
 
+  def activate(self):
+      ''' Activate a single host.
+      '''
+      self.manager.activate(self.id)
+
+  def deactivate(self):
+      ''' Deactivate a single host.
+      '''
+      self.manager.deactivate(self.id)
+
+  def update(self):
+      ''' Update a single host.
+      '''
+      self.manager.update(self.id)
+
+  def rebuild_baseline(self):
+      ''' Rebuild integrity scan baseline for a single host.
+      '''
+      self.manager.rebuild_baseline(self.id)
+
+
 class ComputerGroup(core.CoreObject):
   def __init__(self, manager=None, api_response=None, log_func=None):
     self.manager = manager
@@ -289,9 +326,25 @@ class ComputerGroup(core.CoreObject):
     """
     Recommend a set of rules to apply for each computer in this group
     """
-    results = {}
+    ids = self.computers.keys()
+    return {id:self.computers[id].get_recommended_rules() for id in ids}
 
-    for computer_id in self.computers.keys():
-      results[computer_id] = self.computers[computer_id].get_recommended_rules()
+  def activate(self):
+      ''' Activate all hosts in this group.
+      '''
+      self.manager.activate([id for id in self.computers.keys()])
 
-    return results
+  def deactivate(self):
+      ''' Deactivate all hosts in this group
+      '''
+      self.manager.deactivate([id for id in self.computers.keys()])
+
+  def update(self):
+      ''' Update all hosts in this group.
+      '''
+      self.manager.update([id for id in self.computers.keys()])
+
+  def rebuild_baseline(self):
+      ''' Rebuild integrity scan baselines all hosts in this group.
+      '''
+      self.manager.rebuild_baseline([id for id in self.computers.keys()])
